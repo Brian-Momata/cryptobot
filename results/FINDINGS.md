@@ -93,3 +93,61 @@ versus the matched benchmark gives 90% intervals that all cross zero, e.g. BTC v
 cannot separate a Sharpe edge of 0.1 to 0.3 from luck. The case rests on the edge being
 consistent across coins, settings and periods, not on any single number being significant.
 (The bootstrap was a one-off analysis script, not part of the repo.)
+
+## Step 3: a later split (out-of-sample = 2025-01-01 to 2026-10-23)
+
+A harder test: about 22 months, and a falling market (BTC -14%, ETH -29% buy & hold).
+In-sample now includes 2024, so this isn't fully independent of step 1; it's a check of
+whether the result survives a different period and regime.
+
+| OOS 2025 onward | BTC return | BTC max DD | BTC Sharpe | ETH return | ETH max DD | ETH Sharpe |
+|---|---|---|---|---|---|---|
+| buy_hold | -14% | -53% | 0.02 | -29% | -68% | 0.07 |
+| momentum(90) | -4% | -28% | 0.03 | -8% | -41% | 0.09 |
+| matched to momentum | -3% | -27% | 0.03 | -5% | -36% | 0.07 |
+| vol_target(100,30,0.5) | **+10%** | -25% | **0.34** | **+27%** | -34% | **0.55** |
+| matched to vol_target | -3% | -27% | 0.03 | -3% | -30% | 0.05 |
+
+**momentum: no edge in this period.** It lost less than buy & hold only because it held less;
+the exposure-matched benchmark did just as well. The momentum sweep was also inconsistent again
+(rank correlation -0.14 BTC, +0.46 ETH, 3 to 4 of 7 lookbacks beating buy & hold).
+
+**vol_target: the strategy family held up, the parameter choice did not.**
+
+- Made money on both coins while buy & hold and the matched benchmark lost. 24 of 25 settings
+  on BTC and 25 of 25 on ETH beat buy & hold on Sharpe and Calmar. (In this period Sharpe is
+  close to scale-free, so beating buy & hold's Sharpe means beating the matched benchmark too.)
+- But the in-sample vs OOS rank correlation turned **negative**: -0.30 BTC, -0.65 ETH. Long
+  SMAs (150, 200) were the in-sample favourites on ETH and the worst OOS; sma 50 was the
+  reverse. At the 2024 split the same correlation was +0.39 / +0.58.
+
+Average OOS Sharpe by sma length:
+
+| sma | BTC from 2024 | BTC from 2025 | ETH from 2024 | ETH from 2025 |
+|---|---|---|---|---|
+| 50 | 0.92 | 0.44 | 1.02 | 1.20 |
+| 75 | 0.87 | 0.59 | 0.51 | 0.43 |
+| 100 | 0.77 | 0.30 | 0.59 | 0.57 |
+| 150 | 0.78 | 0.04 | 0.64 | 0.28 |
+| 200 | 0.72 | 0.11 | 0.62 | 0.23 |
+| buy & hold | 0.69 | 0.02 | 0.34 | 0.07 |
+
+Plain reading: "trend filter + size down when volatile" has worked across coins, periods and
+settings. History does **not** reliably say which trend length is best, so tuning it is
+pointless. Pick a middle value in advance and leave it alone.
+
+### A candidate that avoids choosing: blend the SMA lengths
+
+Averaging vol_target's positions over sma 50, 75, 100, 150 and 200 (target_vol 0.5) needs
+no choice of setting:
+
+| OOS | BTC from 2024 | ETH from 2024 | BTC from 2025 | ETH from 2025 |
+|---|---|---|---|---|
+| blend: return / max DD / Sharpe | +85% / -27% / 0.87 | +70% / -32% / 0.74 | +10% / -24% / 0.35 | +29% / -28% / 0.62 |
+| vol_target(100) | +73% / -34% / 0.78 | +49% / -44% / 0.57 | +10% / -25% / 0.34 | +27% / -34% / 0.55 |
+| matched benchmark | +49% / -32% / 0.68 | +18% / -33% / 0.35 | -3% / -29% / 0.02 | -3% / -29% / 0.05 |
+
+It is as good or better in all four cases, with drawdowns at or below the matched benchmark.
+**Caveat:** I tried this after seeing the out-of-sample results, so these numbers are not a
+clean test. It has no tuned parameter, which limits the damage, but it should be judged on
+paper trading, not on this table. Not added to the codebase yet.

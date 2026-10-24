@@ -252,7 +252,7 @@ def cmd_sweep(args):
           f"calmar {share_beating(table, 'OOS_calmar', bh_oos['calmar']):.0%}, "
           f"max DD {share_beating(table, 'OOS_maxdd', bh_oos['max_drawdown']):.0%}")
     print("  *_nbr = median over the setting and its grid neighbours. A good setting with bad neighbours is luck.")
-    out = RESULTS_DIR / f"sweep_{args.strategy}_{tag(args)}_split{args.split}.csv"
+    out = RESULTS_DIR / f"sweep_{args.strategy}_{'-'.join(grid)}_{tag(args)}_split{args.split}.csv"
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     table.to_csv(out)
     print(f"\nAll results: {out}")
