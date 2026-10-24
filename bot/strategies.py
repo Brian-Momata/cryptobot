@@ -51,6 +51,18 @@ class BuyAndHold(Strategy):
         return pd.Series(1.0, index=df.index)
 
 
+class FixedFraction(Strategy):
+    """Benchmark: always hold `fraction` of equity in the coin, the rest in cash.
+    Holding less always shrinks drawdowns, so a strategy that is often partly in cash
+    should be compared against this at the same average exposure, not only buy & hold."""
+
+    name = "fixed_fraction"
+    params = {"fraction": 0.5}
+
+    def target_positions(self, df):
+        return pd.Series(float(self.p["fraction"]), index=df.index)
+
+
 class SMACross(Strategy):
     """Trend following: hold while the fast moving average is above the slow one."""
 
@@ -153,7 +165,7 @@ def rsi(close: pd.Series, period: int = 14) -> pd.Series:
 
 
 REGISTRY: dict[str, type[Strategy]] = {
-    cls.name: cls for cls in [BuyAndHold, SMACross, Momentum, DonchianBreakout, RSIReversion, VolTargetTrend]
+    cls.name: cls for cls in [BuyAndHold, FixedFraction, SMACross, Momentum, DonchianBreakout, RSIReversion, VolTargetTrend]
 }
 
 

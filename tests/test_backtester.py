@@ -116,3 +116,11 @@ def test_yearly_returns_compound_to_total(df):
 def test_unknown_param_rejected():
     with pytest.raises(ValueError):
         strategies.make("sma_cross", fats=10)
+
+
+def test_fixed_fraction_holds_constant_share():
+    d = make_df([100, 200, 100, 200, 100])
+    t = strategies.make("fixed_fraction", fraction=0.5).target_positions(d)
+    r = run_backtest(d, t, NO_COSTS, 1000)
+    # Rebalanced back to 50% at every open, so each close shows 50% marked at that same price.
+    assert r.position.iloc[1:].tolist() == pytest.approx([0.5] * 4)

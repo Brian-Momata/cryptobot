@@ -21,6 +21,7 @@ from bot.data import BARS_PER_YEAR, fetch_ohlcv, load_data, synthetic_data
 from bot.engine import CostModel, run_backtest
 from bot.metrics import format_table, summarize, yearly_returns
 from bot.report import RESULTS_DIR, plot_equity, to_markdown
+from bot.robustness import exposure_matched, neighbour_median, rank_corr, share_beating
 
 pd.set_option("display.width", 200)
 pd.set_option("display.max_columns", 30)
@@ -77,12 +78,13 @@ def label_of(strat: strategies.Strategy) -> str:
 
 
 MIN_ROUND_TRIPS = 10
+BENCHMARKS = ("buy_hold", "fixed_fraction")  # never trade, so never 'thin'
 
 
 def flag_thin(rows: list[dict]) -> list[str]:
     """Strategies with too few trades: their stats are mostly luck."""
     return [r["strategy"] for r in rows
-            if not r["strategy"].startswith("buy_hold") and r["round_trips"] < MIN_ROUND_TRIPS]
+            if not r["strategy"].startswith(BENCHMARKS) and r["round_trips"] < MIN_ROUND_TRIPS]
 
 
 def costs_from(args) -> CostModel:
@@ -187,8 +189,12 @@ def cmd_backtest(args):
     res = evaluate(df, target, costs, args.cash, label, bpy, split)
     bench = evaluate(df, strategies.BuyAndHold().target_positions(df), costs, args.cash, "buy_hold", bpy, split)
 
+    periods = {"full": df}
+    if split is not None:
+        periods |= {"in_sample": df[df.index < split], "out_of_sample": df[df.index >= split]}
     for period, (r, s) in res.items():
-        table = format_table([s, bench[period][1]])[SUMMARY_COLS]
+        matched = exposure_matched(periods[period], r, costs, args.cash)
+        table = format_table([s, bench[period][1], summarize(matched, bpy)])[SUMMARY_COLS]
         warn = f"⚠ Only {s['round_trips']} round trips: too few to judge.\n" if flag_thin([s]) else ""
         print(f"=== {period} ===\n{table.to_string()}\n{warn}")
 
@@ -219,22 +225,34 @@ def cmd_sweep(args):
         if "in_sample" not in res:
             sys.exit("Split leaves too little data on one side.")
         ins, oos = res["in_sample"][1], res["out_of_sample"][1]
-        rows.append({"params": label_of(strat), "IS_sharpe": ins["sharpe"], "IS_cagr": ins["cagr"],
-                     "IS_maxdd": ins["max_drawdown"], "OOS_sharpe": oos["sharpe"], "OOS_cagr": oos["cagr"],
-                     "OOS_maxdd": oos["max_drawdown"]})
+        rows.append({"params": label_of(strat), **params,
+                     "IS_sharpe": ins["sharpe"], "IS_cagr": ins["cagr"], "IS_maxdd": ins["max_drawdown"],
+                     "OOS_sharpe": oos["sharpe"], "OOS_cagr": oos["cagr"], "OOS_maxdd": oos["max_drawdown"],
+                     "OOS_calmar": oos["calmar"], "OOS_trips": oos["round_trips"]})
 
     bh = evaluate(df, strategies.BuyAndHold().target_positions(df), costs, args.cash, "buy_hold", bpy, split)
-    table = pd.DataFrame(rows).sort_values("IS_sharpe", ascending=False).set_index("params")
-    shown = table.head(args.top).copy()
+    bh_oos = bh["out_of_sample"][1]
+    table = pd.DataFrame(rows).set_index("params")
+    table["IS_sharpe_nbr"] = neighbour_median(table, list(grid), "IS_sharpe")
+    table["OOS_sharpe_nbr"] = neighbour_median(table, list(grid), "OOS_sharpe")
+    table = table.sort_values("IS_sharpe", ascending=False)
+    shown = table.drop(columns=list(grid)).head(args.top).copy()
     for c in shown.columns:
-        shown[c] = shown[c].map(lambda v: f"{v:.2f}" if "sharpe" in c else f"{v * 100:.1f}%")
+        if "sharpe" in c or "calmar" in c:
+            shown[c] = shown[c].map(lambda v: f"{v:.2f}")
+        elif c != "OOS_trips":
+            shown[c] = shown[c].map(lambda v: f"{v * 100:.1f}%")
     print(shown.to_string())
-    print(f"\nBuy & hold: IS sharpe {bh['in_sample'][1]['sharpe']:.2f}, OOS sharpe {bh['out_of_sample'][1]['sharpe']:.2f}, "
-          f"OOS cagr {bh['out_of_sample'][1]['cagr'] * 100:.1f}%")
-    rank_corr = table["IS_sharpe"].corr(table["OOS_sharpe"], method="spearman")
-    print(f"\nIn-sample vs out-of-sample rank correlation: {rank_corr:.2f}")
+    print(f"\nBuy & hold: IS sharpe {bh['in_sample'][1]['sharpe']:.2f}, OOS sharpe {bh_oos['sharpe']:.2f}, "
+          f"OOS cagr {bh_oos['cagr'] * 100:.1f}%, OOS max DD {bh_oos['max_drawdown'] * 100:.1f}%, "
+          f"OOS calmar {bh_oos['calmar']:.2f}")
+    print(f"\nIn-sample vs out-of-sample rank correlation: {rank_corr(table):.2f}")
     print("  Near 0 or negative = the 'best' settings were luck (overfit). Want this clearly positive.")
-    out = RESULTS_DIR / f"sweep_{args.strategy}_{tag(args)}.csv"
+    print(f"Settings beating buy & hold OOS: sharpe {share_beating(table, 'OOS_sharpe', bh_oos['sharpe']):.0%}, "
+          f"calmar {share_beating(table, 'OOS_calmar', bh_oos['calmar']):.0%}, "
+          f"max DD {share_beating(table, 'OOS_maxdd', bh_oos['max_drawdown']):.0%}")
+    print("  *_nbr = median over the setting and its grid neighbours. A good setting with bad neighbours is luck.")
+    out = RESULTS_DIR / f"sweep_{args.strategy}_{tag(args)}_split{args.split}.csv"
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     table.to_csv(out)
     print(f"\nAll results: {out}")

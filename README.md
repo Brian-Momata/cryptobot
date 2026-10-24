@@ -12,7 +12,7 @@ cd cryptobot
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pytest            # 23 tests, should all pass
+pytest            # 33 tests, should all pass
 ```
 
 ## Use it
@@ -54,13 +54,15 @@ Useful flags: `--split 2024-01-01` (in-sample / out-of-sample boundary), `--star
 | Overfitting | Data is split: tune before 2024, judge 2024 onward. `sweep` reports whether the best in-sample settings stayed good out-of-sample. |
 | Luck from few trades | Strategies with fewer than 10 round trips are flagged. |
 | Ignoring the pain | Max drawdown, Calmar and per-year returns shown next to profit. |
-| No baseline | Buy & hold is always in the table. |
+| No baseline | Buy & hold is always in the table. `backtest` also shows buy & hold scaled to the strategy's average exposure, since holding less always shrinks drawdowns. |
+| Lucky single setting | `sweep` shows each setting's neighbourhood median (`*_nbr`) and the share of settings that beat buy & hold. |
 
 ## Strategies
 
 | Name | Idea |
 |---|---|
 | `buy_hold` | Benchmark. Buy once, never sell. |
+| `fixed_fraction` | Benchmark. Always hold a fixed share (default 50%), rest in cash. |
 | `sma_cross` | Trend: hold while the 50-day average is above the 200-day. |
 | `momentum` | Trend: hold if price is above where it was 90 candles ago. |
 | `donchian` | Breakout: buy a new 20-candle high, sell a new 10-candle low. |
@@ -85,6 +87,7 @@ bot/data.py        download + cache candles, synthetic data
 bot/strategies.py  strategies (shared with the future live bot)
 bot/engine.py      simulator: next-open fills, fees, slippage, spot only
 bot/metrics.py     CAGR, drawdown, Sharpe, win rate, yearly returns
+bot/robustness.py  sweep neighbourhoods, rank correlation, exposure-matched benchmark
 bot/report.py      charts + markdown
 run.py             command line
 tests/             accounting, lookahead and fetch tests
