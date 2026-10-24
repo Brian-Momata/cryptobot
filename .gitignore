@@ -4,5 +4,6 @@ __pycache__/
 data/*.csv
 results/*
 !results/.gitkeep
+!results/FINDINGS.md
 !data/.gitkeep
 .env
