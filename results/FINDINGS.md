@@ -3,6 +3,52 @@
 Daily candles, Binance spot, 2018-01-01 to 2026-10-23. Every number is after 0.1% fee + 0.05%
 slippage per fill. Out-of-sample (OOS) = 2024-01-01 onward unless stated.
 
+## Verdict
+
+**vol_target survives. momentum does not.** Neither is *proven*, but vol_target passed every
+test except one, and that one tells us how to run it.
+
+What survived:
+
+- **vol_target (trend filter + smaller position when the market is wild).** Out-of-sample it
+  beat buy & hold on Sharpe, Calmar and drawdown on BTC and ETH, from 2024 and from 2025, and
+  in 24 to 25 of 25 parameter settings each time. It also beat buy & hold scaled to the same
+  average exposure (the fair benchmark, see step 2), so the edge is not just "held less".
+  In 2025-26, while buy & hold lost 14% (BTC) and 29% (ETH), it made +10% and +27%.
+
+What didn't:
+
+- **momentum.** Its BTC numbers look good, but the lookback that looked best in-sample did
+  worse out-of-sample on both coins (negative rank correlation), half the lookbacks lost to buy
+  & hold, and from 2025 it did no better than simply holding half as much BTC/ETH. The
+  lookback 90 result looks like luck.
+- **donchian, sma_cross, rsi_reversion**: dropped (overfit, or too few trades).
+
+What we got wrong earlier:
+
+- "Similar return, half the drawdown" was mostly an illusion. Holding ~50% of the coin
+  all the time *also* halves the drawdown. Compared fairly (same average exposure) the
+  drawdowns are about equal. The real edge is the reverse: **more return for the same
+  risk**, from being in the market during the good stretches. Risk-adjusted it's still a win.
+
+The weak spots, honestly:
+
+- **Not statistically significant.** Sharpe advantages of 0.1 to 0.5 over 1 to 3 years are
+  inside the noise (bootstrap 90% intervals all cross zero). The case rests on consistency
+  across two coins, two test periods and the whole parameter grid, not on any one number.
+- **You can't tune it.** Which SMA length works best flipped between test periods (rank
+  correlation +0.39/+0.58 from 2024, -0.30/-0.65 from 2025). Use the untuned default
+  vol_target(100,30,0.5) and don't optimise it. A blend of SMA lengths looked even better,
+  but I tried it after seeing the results, so it needs a clean test (paper trading).
+- BTC and ETH move together, so "works on both" is less independent evidence than it sounds.
+- Daily data only. Hourly and other coins are untested.
+- Out-of-sample means 15 to 23 round trips per coin. That's small.
+
+**Recommendation:** paper trade vol_target(100,30,0.5) on BTC/USDT, with the SMA blend
+tracked alongside as a shadow (signals logged, no orders). The goal of paper trading is to
+prove the live bot behaves exactly like the backtest. 1 to 3 months is far too short to
+judge profitability; the backtest already showed 2 to 3 years can't.
+
 ## Step 1: does it hold up on ETH?
 
 Out-of-sample, 2024-01-01 to 2026-10-23:
