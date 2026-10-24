@@ -23,14 +23,32 @@ def make_df(prices):
 
 # ---------- no lookahead: the most important test ----------
 
-@pytest.mark.parametrize("name", list(strategies.REGISTRY))
-def test_no_lookahead(df, name):
-    """A strategy's decision at candle t must not change when future candles are added."""
-    strat = strategies.make(name)
+def assert_no_lookahead(strat, df):
     full = strat.target_positions(df)
     for cut in (300, 700, 1100):
         partial = strat.target_positions(df.iloc[:cut])
         pd.testing.assert_series_equal(full.iloc[:cut], partial, check_names=False)
+
+
+@pytest.mark.parametrize("name", list(strategies.REGISTRY))
+def test_no_lookahead(df, name):
+    """A strategy's decision at candle t must not change when future candles are added."""
+    assert_no_lookahead(strategies.make(name), df)
+
+
+class PeekingStrategy(strategies.Strategy):
+    """Cheats: buys today if tomorrow closes higher."""
+
+    name = "peek"
+
+    def target_positions(self, df):
+        return (df["close"].shift(-1) > df["close"]).astype(float)
+
+
+def test_lookahead_check_catches_a_cheat(df):
+    """The lookahead test is only worth something if it fails on a strategy that peeks."""
+    with pytest.raises(AssertionError):
+        assert_no_lookahead(PeekingStrategy(), df)
 
 
 @pytest.mark.parametrize("name", list(strategies.REGISTRY))
@@ -124,3 +142,22 @@ def test_fixed_fraction_holds_constant_share():
     r = run_backtest(d, t, NO_COSTS, 1000)
     # Rebalanced back to 50% at every open, so each close shows 50% marked at that same price.
     assert r.position.iloc[1:].tolist() == pytest.approx([0.5] * 4)
+
+
+@pytest.mark.parametrize("name", ["buy_hold", "momentum", "sma_cross", "donchian"])
+def test_engine_matches_independent_formula(df, name):
+    """Recompute equity for all-in / all-out strategies with a plain formula, not the engine's
+    loop: overnight gap, open-to-close move, and exact entry/exit cost factors."""
+    fee, slip = 0.001, 0.0005
+    t = strategies.make(name).target_positions(df).to_numpy()
+    o, c = df["open"].to_numpy(), df["close"].to_numpy()
+    held = np.r_[0.0, t[:-1]]  # position during candle i, set at its open
+    prev = np.r_[0.0, held[:-1]]  # position just before that open
+    r = np.ones(len(df))
+    r[1:] = np.where(prev[1:] == 1, o[1:] / c[:-1], 1.0)
+    r *= np.where((held == 1) & (prev == 0), 1 / ((1 + fee) * (1 + slip)), 1.0)
+    r *= np.where((held == 0) & (prev == 1), (1 - fee) * (1 - slip), 1.0)
+    r *= np.where(held == 1, c / o, 1.0)
+    expected = 1000 * np.cumprod(r)
+    eng = run_backtest(df, pd.Series(t, index=df.index), CostModel(fee=fee, slippage=slip), 1000)
+    np.testing.assert_allclose(eng.equity.to_numpy(), expected, rtol=1e-10)

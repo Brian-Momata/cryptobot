@@ -209,3 +209,44 @@ refuses non-testnet. Limits: max position and order size, -5% daily alert, -10% 
 -40% drawdown halt. It also has Telegram alerts with an external heartbeat, and a kill switch
 (file / command / optional Telegram). One open decision: whether the -10% daily limit should
 sell everything or halt and hold.
+
+## Independent review (second pass)
+
+A second check of the whole project, done before building anything for paper trading.
+
+**The machinery is sound.**
+
+- Data: BTC and ETH daily from 2018 have no missing days, duplicates or impossible prices.
+- Simulator: recomputed every all-in/all-out strategy with an independent formula. The final
+  equity matches the engine's to 15 decimal places. This is now a test.
+- Cheating check: the lookahead test is now itself tested. It fails, as it should, on a
+  strategy that peeks at tomorrow's price.
+
+**What a typical year looks like.** `python run.py rolling` backtests every 12-month window
+(one starting each month, 94 per coin) for vol_target(100,30,0.5):
+
+| | BTC | ETH |
+|---|---|---|
+| Beat buy & hold's return | 47% of windows | 51% |
+| Smaller drawdown than buy & hold | 80% | 98% |
+| Lost money (buy & hold lost money) | 24% (35%) | 33% (45%) |
+| Median 12-month return (buy & hold) | +30% (+41%) | +36% (+15%) |
+| Worst 12-month return (buy & hold) | -29% (-72%) | -51% (-90%) |
+| Longest stretch below a previous high (buy & hold) | 32 months (34) | 28 months (45) |
+
+So vol_target is **crash insurance, not an edge you'll see every year.** In about half of
+years it trails just holding, sometimes by a lot (in strong bull years like 2020, 2023 and 2024
+it made roughly half what holding did). It earns its keep in crashes: its worst year was far
+milder than holding's. Expect long, frustrating stretches where it looks like it isn't working.
+
+**Costs are its weak point.** At double the assumed costs (0.2% fee + 0.1% slippage), its
+out-of-sample edge on BTC disappears (Sharpe 0.70 vs buy & hold 0.69). ETH is still ahead
+(0.51 vs 0.34). Binance's real spot fee is 0.1%, so the base case is realistic. But on an
+exchange or app with higher fees (many retail apps charge 0.5% or more, or hide it in
+the spread) the strategy is not worth running. Trading less often by skipping small
+adjustments (`--min-rebalance` from 2% to 20%) barely changed costs, because most of the
+cost comes from the ~2 to 3 full entries and exits a year.
+
+**Research caveat.** These out-of-sample periods have now been looked at many times, across
+two chat sessions and many strategies. Each look leaks a little, so the 2024 to 2026 results are
+a bit more optimistic than a truly fresh test. Paper trading is the only clean data left.

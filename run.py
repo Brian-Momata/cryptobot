@@ -4,6 +4,7 @@
     python run.py compare  --symbol BTC/USDT --timeframe 1d
     python run.py backtest --symbol BTC/USDT --strategy sma_cross --param fast=20 --param slow=100
     python run.py sweep    --symbol BTC/USDT --strategy sma_cross --grid fast=10,20,50 --grid slow=100,150,200
+    python run.py rolling  --symbol BTC/USDT --strategy vol_target
     python run.py list
 
 Add --synthetic to any command (except fetch) to run on fake data, no internet needed.
@@ -21,7 +22,7 @@ from bot.data import BARS_PER_YEAR, fetch_ohlcv, load_data, synthetic_data
 from bot.engine import CostModel, run_backtest
 from bot.metrics import format_table, summarize, yearly_returns
 from bot.report import RESULTS_DIR, plot_equity, to_markdown
-from bot.robustness import exposure_matched, neighbour_median, rank_corr, share_beating
+from bot.robustness import exposure_matched, neighbour_median, rank_corr, rolling_windows, share_beating
 
 pd.set_option("display.width", 200)
 pd.set_option("display.max_columns", 30)
@@ -258,6 +259,32 @@ def cmd_sweep(args):
     print(f"\nAll results: {out}")
 
 
+def cmd_rolling(args):
+    """Judge the strategy over every 12-month window (one starting each month), not just once."""
+    df = get_data(args)
+    bpy = BARS_PER_YEAR[args.timeframe]
+    strat = build(args.strategy, parse_params(args.param), args.timeframe)
+    w = rolling_windows(df, strat.target_positions(df), costs_from(args), args.cash, args.days,
+                        bars_per_year=bpy)
+    n = len(w)
+    print(f"{label_of(strat)} on {tag(args)}: {n} windows of {args.days} days, one starting each month\n")
+    print(f"  Beat buy & hold on return:           {(w['return'] > w['bh_return']).mean():.0%} of windows")
+    print(f"  Beat buy & hold on Sharpe:           {(w['sharpe'] > w['bh_sharpe']).mean():.0%}")
+    print(f"  Beat same-exposure holding (Sharpe): {(w['sharpe'] > w['matched_sharpe']).mean():.0%}")
+    print(f"  Smaller drawdown than buy & hold:    {(w['max_drawdown'] > w['bh_max_drawdown']).mean():.0%}")
+    print(f"  Lost money:                          {(w['return'] < 0).mean():.0%}  (buy & hold: {(w['bh_return'] < 0).mean():.0%})")
+    print(f"  Return: median {w['return'].median():.0%}, worst {w['return'].min():.0%}, best {w['return'].max():.0%}"
+          f"  (buy & hold: median {w['bh_return'].median():.0%}, worst {w['bh_return'].min():.0%})")
+    by_year = w.groupby(w.index.year)[["return", "bh_return"]].median()
+    print("\nMedian window return by start year (strategy vs buy & hold):")
+    for y, row in by_year.iterrows():
+        print(f"  {y}: {row['return']:>6.0%} vs {row['bh_return']:>6.0%}")
+    out = RESULTS_DIR / f"rolling_{args.strategy}_{tag(args)}.csv"
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    w.to_csv(out)
+    print(f"\nAll windows: {out}")
+
+
 HOW_TO_READ = """## How to read this
 
 - **Out-of-sample is what matters.** In-sample is where ideas were found; out-of-sample is a test the strategy never saw.
@@ -300,9 +327,14 @@ def main():
     s.add_argument("--grid", action="append", required=True, help="e.g. --grid fast=10,20,50 (repeatable)")
     s.add_argument("--top", type=int, default=10)
 
+    r = sub.add_parser("rolling", help="judge a strategy over every 12-month window", parents=[common])
+    r.add_argument("--strategy", required=True)
+    r.add_argument("--param", action="append", help="e.g. --param sma=50 (repeatable)")
+    r.add_argument("--days", type=int, default=365)
+
     args = p.parse_args()
     {"list": cmd_list, "fetch": cmd_fetch, "compare": cmd_compare,
-     "backtest": cmd_backtest, "sweep": cmd_sweep}[args.cmd](args)
+     "backtest": cmd_backtest, "sweep": cmd_sweep, "rolling": cmd_rolling}[args.cmd](args)
 
 
 if __name__ == "__main__":

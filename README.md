@@ -12,7 +12,7 @@ cd cryptobot
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pytest            # 33 tests, should all pass
+pytest            # 39 tests, should all pass
 ```
 
 ## Use it
@@ -33,6 +33,9 @@ python run.py backtest --symbol BTC/USDT --strategy sma_cross --param fast=20 --
 # 4. Tune settings honestly (tuned on old data, judged on new data)
 python run.py sweep --symbol BTC/USDT --strategy donchian --grid entry=10,20,40,55 --grid exit=5,10,20
 
+# 5. See how often it wins year to year (every 12-month window, one starting each month)
+python run.py rolling --symbol BTC/USDT --strategy vol_target
+
 python run.py list         # strategies and their settings
 ```
 
@@ -49,7 +52,7 @@ Useful flags: `--split 2024-01-01` (in-sample / out-of-sample boundary), `--star
 
 | Trap | What this does about it |
 |---|---|
-| Lookahead (using future data) | Decisions at a candle's close execute at the **next** candle's open. A test checks every strategy gives identical signals when future candles are removed. |
+| Lookahead (using future data) | Decisions at a candle's close execute at the **next** candle's open. A test checks every strategy gives identical signals when future candles are removed, and that this check catches a strategy that cheats. The simulator is checked against an independent formula. |
 | Ignoring costs | 0.1% fee + 0.05% slippage on every fill, built into every number. |
 | Overfitting | Data is split: tune before 2024, judge 2024 onward. `sweep` reports whether the best in-sample settings stayed good out-of-sample. |
 | Luck from few trades | Strategies with fewer than 10 round trips are flagged. |
@@ -77,6 +80,9 @@ returning 0 to 1 per candle, add it to `REGISTRY`. The lookahead test covers it 
 - **Out-of-sample** is the only table that counts.
 - A strategy earns its place only if it beats buy & hold on **risk-adjusted** terms
   (Sharpe, Calmar, max drawdown) out-of-sample, after costs, on both BTC and ETH.
+- Also compare against holding the same average amount (`fixed_fraction`, shown by `backtest`):
+  holding less always shrinks drawdowns, and that isn't skill.
+- A good full-period number can hide a strategy that only wins in one or two crash years. Check `rolling`.
 - Sharpe above 2 on a simple strategy usually means a bug or luck, not genius.
 - Expect most strategies to fail. That's the backtester doing its job.
 

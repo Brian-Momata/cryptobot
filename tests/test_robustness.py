@@ -4,7 +4,7 @@ import pytest
 from bot import strategies
 from bot.data import synthetic_data
 from bot.engine import CostModel, run_backtest
-from bot.robustness import exposure_matched, neighbour_median, rank_corr, share_beating
+from bot.robustness import exposure_matched, neighbour_median, rank_corr, rolling_windows, share_beating
 
 
 def grid_table(values):
@@ -60,3 +60,14 @@ def test_exposure_matched_holds_strategy_average_exposure():
     assert bench.position.iloc[1:].mean() == pytest.approx(strat.position.mean(), abs=0.02)
     assert bench.label.startswith("fixed_fraction(")
     assert len(bench.trades) > 1  # it rebalances, so its fees are counted too
+
+
+def test_rolling_windows():
+    df = synthetic_data("1d", start="2018-01-01", end="2021-01-01", seed=3)
+    bh = pd.Series(1.0, index=df.index)
+    w = rolling_windows(df, bh, CostModel(), 1000)
+    assert len(w) == 25  # monthly starts Jan 2018 to Jan 2020 each leave a full year of data
+    assert (w.index.to_series().diff().dropna() >= pd.Timedelta(days=28)).all()
+    # Buy & hold judged against itself: identical, so it never "beats" itself.
+    assert (w["return"] == w["bh_return"]).all()
+    assert w["max_drawdown"].le(0).all()
