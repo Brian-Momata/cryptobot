@@ -197,3 +197,15 @@ It is as good or better in all four cases, with drawdowns at or below the matche
 **Caveat:** I tried this after seeing the out-of-sample results, so these numbers are not a
 clean test. It has no tuned parameter, which limits the damage, but it should be judged on
 paper trading, not on this table. Not added to the codebase yet.
+
+## Step 5: paper-trading design
+
+vol_target survived, so there's a proposed (not built) design for Binance spot testnet in
+[`docs/paper_trading_design.md`](../docs/paper_trading_design.md). In short: an hourly loop
+that trades at most once a day on the completed daily candle (matching the backtest).
+Signals come from mainnet candles, orders go to testnet, and a shadow ledger runs alongside.
+It uses the same `bot/strategies.py` code and testnet keys only, with a startup guard that
+refuses non-testnet. Limits: max position and order size, -5% daily alert, -10% daily halt,
+-40% drawdown halt. It also has Telegram alerts with an external heartbeat, and a kill switch
+(file / command / optional Telegram). One open decision: whether the -10% daily limit should
+sell everything or halt and hold.

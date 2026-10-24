@@ -97,7 +97,7 @@ tests/             accounting, lookahead and fetch tests
 
 1. Run `compare` on BTC and ETH, daily and hourly.
 2. Shortlist anything that beats buy & hold out-of-sample on risk-adjusted terms.
-3. Paper trade the survivors on Binance testnet for 1 to 3 months.
+3. Paper trade the survivors on Binance testnet for 1 to 3 months. Results so far: `results/FINDINGS.md`; design: `docs/paper_trading_design.md`.
 4. Only then, live with small money, hard loss limits and a kill switch.
 
 Not financial advice. Past performance, especially backtested, doesn't guarantee future results.
