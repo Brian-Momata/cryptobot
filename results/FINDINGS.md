@@ -250,3 +250,55 @@ cost comes from the ~2 to 3 full entries and exits a year.
 **Research caveat.** These out-of-sample periods have now been looked at many times, across
 two chat sessions and many strategies. Each look leaks a little, so the 2024 to 2026 results are
 a bit more optimistic than a truly fresh test. Paper trading is the only clean data left.
+
+## Pre-registration (written 2026-10-25, before paper trading starts)
+
+The rules below are fixed **before** any paper-trading data exists, so a lucky or unlucky
+month can't change them afterwards. Changing them later needs a written reason here, dated,
+and must not be based on how the candidates performed.
+
+### What runs
+
+| Ledger | Strategy | Orders? |
+|---|---|---|
+| Main | `vol_target(100,30,0.5)` on BTC/USDT | Yes, Binance spot **testnet** |
+| Shadow A | `vol_target_blend(50,75,100,150,200,30,0.5)` on BTC/USDT | No, simulated fills |
+| Shadow B | 50/50 split: `vol_target(100,30,0.5)` on BTC/USDT and on ETH/USDT, each half run on its own, never rebalanced between coins | No, simulated fills |
+| Reference | buy & hold BTC, and buy & hold at vol_target's average exposure | No |
+
+Shadows use the backtest's cost model (0.1% fee + 0.05% slippage, fills at the mainnet open).
+No parameters are tuned during paper trading. Shadow B was **not** backtested before this was
+written, so paper trading is its first test.
+
+### Go-live criteria (small real money)
+
+All must hold after **at least 2 months** of paper trading:
+
+1. **Parity:** every daily target the bot computed equals what `target_positions` gives for
+   the same candles, and every testnet order matches what the backtest engine would have done.
+2. **Reliability:** no unexplained errors, no duplicate orders, and exchange balances always
+   reconcile with the bot's records (any mismatch has a known cause).
+3. **Costs:** average fee + slippage per fill at or below 0.15% versus the mainnet open.
+   If higher, rerun the cost-sensitivity check with the measured cost before deciding.
+4. **Safety drills:** the kill switch, the daily-loss halt and the drawdown halt have each
+   been triggered on purpose at least once and behaved as specified.
+5. **The owner accepts the downside:** in about half of years it trails buy & hold; a bad
+   year can lose 25 to 50%; it can stay below a previous high for 2 to 3 years.
+
+**Profit during paper trading is not a criterion**, in either direction. 2 to 3 months
+can't tell skill from luck.
+
+If all hold: start live with a stake the owner can lose without it hurting (about $100 to
+$500), using a trade-only API key with withdrawals disabled and an IP whitelist. Add money
+only after **6+ months live** in which the bot behaved as designed.
+
+### Which strategy goes live
+
+- **Default: the main ledger's `vol_target(100,30,0.5)` on BTC**, because it has the most
+  validation and is the one whose machinery was tested with real orders.
+- **Shadow A replaces it** only after at least **12 months** of fresh (paper or live) data
+  in which the blend's Sharpe is at least the main's **and** its max drawdown is no worse.
+  Both are untuned and behave similarly, so switching is low-stakes, but it still needs
+  fresh evidence.
+- **Shadow B is adopted** under the same 12-month rule, compared against the main ledger.
+- If neither condition is met, nothing changes. Never switch because of a good or bad month.

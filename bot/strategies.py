@@ -154,6 +154,24 @@ class VolTargetTrend(Strategy):
         return (size * uptrend).astype(float)
 
 
+class VolTargetBlend(Strategy):
+    """vol_target averaged over several trend lengths, so no single SMA has to be chosen.
+    Each length votes with its own vol-sized position; the result is the mean, which also
+    makes entries and exits more gradual."""
+
+    name = "vol_target_blend"
+    params = {"smas": "50,75,100,150,200", "vol_window": 30, "target_vol": 0.5, "bars_per_year": 365}
+
+    def target_positions(self, df):
+        smas = [int(s) for s in str(self.p["smas"]).split(",")]
+        legs = [
+            VolTargetTrend(sma=s, vol_window=self.p["vol_window"], target_vol=self.p["target_vol"],
+                           bars_per_year=self.p["bars_per_year"]).target_positions(df)
+            for s in smas
+        ]
+        return pd.concat(legs, axis=1).mean(axis=1)
+
+
 def rsi(close: pd.Series, period: int = 14) -> pd.Series:
     """Wilder's RSI (causal)."""
     delta = close.diff()
@@ -165,7 +183,8 @@ def rsi(close: pd.Series, period: int = 14) -> pd.Series:
 
 
 REGISTRY: dict[str, type[Strategy]] = {
-    cls.name: cls for cls in [BuyAndHold, FixedFraction, SMACross, Momentum, DonchianBreakout, RSIReversion, VolTargetTrend]
+    cls.name: cls for cls in [BuyAndHold, FixedFraction, SMACross, Momentum, DonchianBreakout, RSIReversion, VolTargetTrend,
+                           VolTargetBlend]
 }
 
 

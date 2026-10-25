@@ -144,6 +144,13 @@ def test_fixed_fraction_holds_constant_share():
     assert r.position.iloc[1:].tolist() == pytest.approx([0.5] * 4)
 
 
+def test_blend_is_mean_of_vol_target_legs(df):
+    blend = strategies.make("vol_target_blend", smas="50,200").target_positions(df)
+    a = strategies.make("vol_target", sma=50).target_positions(df)
+    b = strategies.make("vol_target", sma=200).target_positions(df)
+    pd.testing.assert_series_equal(blend, (a + b) / 2, check_names=False)
+
+
 @pytest.mark.parametrize("name", ["buy_hold", "momentum", "sma_cross", "donchian"])
 def test_engine_matches_independent_formula(df, name):
     """Recompute equity for all-in / all-out strategies with a plain formula, not the engine's

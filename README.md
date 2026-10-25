@@ -12,7 +12,7 @@ cd cryptobot
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pytest            # 39 tests, should all pass
+pytest            # 42 tests, should all pass
 ```
 
 ## Use it
@@ -71,6 +71,7 @@ Useful flags: `--split 2024-01-01` (in-sample / out-of-sample boundary), `--star
 | `donchian` | Breakout: buy a new 20-candle high, sell a new 10-candle low. |
 | `rsi_reversion` | Mean reversion: buy oversold dips in an uptrend, sell the bounce. |
 | `vol_target` | Trend + sizing: in an uptrend, hold less when the market is wild, more when calm. |
+| `vol_target_blend` | vol_target averaged over sma 50, 75, 100, 150 and 200, so no trend length is chosen. |
 
 Add your own in `bot/strategies.py`: subclass `Strategy`, implement `target_positions(df)`
 returning 0 to 1 per candle, add it to `REGISTRY`. The lookahead test covers it automatically.
