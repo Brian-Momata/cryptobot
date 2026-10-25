@@ -1,0 +1,14 @@
+# One hourly tick of the paper-trading bot. Started by cryptobot.timer.
+# Install: see docs/deploy.md. Assumes the repo is at /home/cryptobot/cryptobot.
+[Unit]
+Description=cryptobot paper-trading tick (Binance testnet)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=cryptobot
+WorkingDirectory=/home/cryptobot/cryptobot
+ExecStart=/home/cryptobot/cryptobot/.venv/bin/python live.py --once
+TimeoutStartSec=600
+NoNewPrivileges=true

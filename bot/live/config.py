@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SECRET_FIELDS = ("api_key", "api_secret", "telegram_token", "healthcheck_url")
+LIMIT_NAMES = ("soft_daily_loss", "hard_daily_loss", "max_drawdown", "max_price_gap", "max_reconcile_gap")
 
 
 def read_dotenv(path: Path) -> dict[str, str]:
@@ -37,6 +38,8 @@ class Settings:
     allocated_usdt: float = 1_000.0
     db_path: Path = field(default_factory=lambda: ROOT / "data" / "live.sqlite")
     kill_path: Path = field(default_factory=lambda: ROOT / "data" / "KILL")
+    # Optional risk-limit overrides, e.g. HARD_DAILY_LOSS=-0.001 for a safety drill.
+    limit_overrides: dict[str, float] = field(default_factory=dict)
 
     @classmethod
     def load(cls, env: dict[str, str] | None = None, dotenv: Path | None = None) -> "Settings":
@@ -55,6 +58,9 @@ class Settings:
             s.db_path = Path(merged["DB_PATH"])
         if merged.get("KILL_PATH"):
             s.kill_path = Path(merged["KILL_PATH"])
+        for name in LIMIT_NAMES:
+            if merged.get(name.upper()):
+                s.limit_overrides[name] = float(merged[name.upper()])
         return s
 
     def __repr__(self) -> str:

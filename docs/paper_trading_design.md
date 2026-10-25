@@ -1,4 +1,7 @@
-# Paper-trading design (proposal, not built)
+# Paper-trading design
+
+**Status: built** (`bot/live/`, `live.py`). To set it up and run it, see [deploy.md](deploy.md).
+Where the build differs from this proposal, it says so inline ("Built:").
 
 Goal: run vol_target(100,30,0.5) on BTC/USDT against Binance's spot testnet for 1 to 3 months
 and prove the live bot does **exactly what the backtest says it would**. Profit over this
@@ -28,7 +31,9 @@ bot/live/broker.py  ccxt binance with set_sandbox_mode(True); balances, orders, 
 bot/live/risk.py    pure functions: order sizing, limits, sanity checks (easy to unit test)
 bot/live/state.py   SQLite: decisions, orders, fills, daily equity, last-trade date
 bot/live/alerts.py  Telegram send (outbound only)
-live.py             the hourly loop; `python live.py --once` runs a single tick
+bot/live/trader.py  (built) the tick logic: risk checks, daily decision, shadow ledgers
+bot/live/fake.py    (built) in-memory exchange for tests
+live.py             CLI; `python live.py --once` runs a single tick (built: a systemd timer runs it hourly)
 ```
 
 **Signals use mainnet candles, orders go to testnet.** Testnet prices and liquidity are thin
@@ -52,6 +57,11 @@ logged, no orders.
 6. Risk checks (below). Round to Binance lot size; skip if under minimum notional.
 7. Market order with `clientOrderId = f"vt-{date}"`. If a retry happens, the exchange
    rejects the duplicate, so one day can never trade twice.
+   *Built:* Binance only rejects duplicate IDs among **open** orders, and a filled market
+   order isn't open, so this can't be relied on. Instead the order is written to SQLite as
+   `pending` *before* it's sent. If the bot crashes, the next tick asks the exchange for that
+   client ID: if it filled, it's recorded and the day is done; if it never arrived, the order
+   is marked `not_placed` and retried with a new ID (at most 2 attempts a day, then halt).
 8. Record the fill. Log slippage against the mainnet open and the shadow ledger's fill.
 9. Telegram: what it did and why (target, old/new position, price, fee, slippage).
 
@@ -86,8 +96,7 @@ Calibrated from the backtest. vol_target's close-to-close days below -5% happene
 
 Note: hourly checks see intraday dips, which are deeper than the close-to-close numbers above.
 
-**Your call:** should the hard daily limit *flatten* (sell everything) or *halt and hold*? I
-propose halt-and-hold for paper trading. The backtest never sold on a loss limit, so
+**Decided (2026-10-25): halt and hold.** The backtest never sold on a loss limit, so
 flattening would make the bot differ from what was tested, and selling at the bottom of a
 crash day is often the worst price. The kill switch is there for when you want out.
 
@@ -98,8 +107,8 @@ Any one of these stops the bot:
 - Create the file `data/KILL`, or run `python live.py --kill`. Next tick (or immediately, if
   run by hand): cancel open orders, sell to USDT, write state, alert, exit. It won't start
   again until the file is removed.
-- Telegram `/kill` from your chat ID only (all other senders ignored). Optional; it adds a
-  polling loop, so it could be phase 2.
+- Telegram `/kill` from your chat ID only (all other senders ignored). Optional; *not built* (it adds a
+  polling loop, so it could be phase 2).
 - Stop the process (systemd/tmux). With no orders resting, a stopped bot is a safe bot.
 
 ## Telegram alerts
@@ -107,7 +116,8 @@ Any one of these stops the bot:
 Bot token and chat ID in `.env`. Messages:
 
 - every trade (and every skipped trade, with the reason)
-- daily summary at 00:15 UTC: equity, position, P&L vs shadow ledger and vs buy & hold
+- daily summary: equity, position, P&L vs shadow ledgers and vs buy & hold (*Built:* sent with
+  the daily decision rather than separately at 00:15)
 - every limit breach, error, stale data or reconciliation mismatch
 - a dead-man's switch: the bot pings an external heartbeat (e.g. healthchecks.io) hourly,
   which alerts you if the bot itself dies. A dead bot can't send its own alert.

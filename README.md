@@ -1,4 +1,4 @@
-# cryptobot: backtester
+# cryptobot: backtester and paper-trading bot
 
 Step 1 of the trading bot: test strategies on years of real BTC/ETH data, with realistic
 fees and slippage, before any money is involved.
@@ -12,7 +12,7 @@ cd cryptobot
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pytest            # 42 tests, should all pass
+pytest            # 63 tests, should all pass
 ```
 
 ## Use it
@@ -91,20 +91,40 @@ returning 0 to 1 per candle, add it to `REGISTRY`. The lookahead test covers it 
 
 ```
 bot/data.py        download + cache candles, synthetic data
-bot/strategies.py  strategies (shared with the future live bot)
+bot/strategies.py  strategies (shared with the paper-trading bot)
 bot/engine.py      simulator: next-open fills, fees, slippage, spot only
 bot/metrics.py     CAGR, drawdown, Sharpe, win rate, yearly returns
 bot/robustness.py  sweep neighbourhoods, rank correlation, exposure-matched benchmark
 bot/report.py      charts + markdown
-run.py             command line
-tests/             accounting, lookahead and fetch tests
+bot/live/          paper trading: trader loop, testnet broker, risk limits, SQLite state, alerts
+run.py             command line (backtests)
+live.py            command line (paper trading)
+deploy/            systemd service + hourly timer
+tests/             accounting, lookahead, fetch and live-loop tests
+```
+
+## Paper trading
+
+`vol_target(100,30,0.5)` trades BTC/USDT on Binance's spot **testnet** (fake money) once a day,
+with risk limits, a kill switch, Telegram alerts and two shadow strategies tracked alongside.
+A replay test checks that the live loop places exactly the backtest's trades.
+
+- Setup and day-to-day use: [`docs/deploy.md`](docs/deploy.md)
+- Design: [`docs/paper_trading_design.md`](docs/paper_trading_design.md)
+- Rules for judging it, fixed before it started: "Pre-registration" in [`results/FINDINGS.md`](results/FINDINGS.md)
+
+```bash
+python live.py --check     # test keys, Telegram and data; no orders
+python live.py --init      # start
+python live.py --status    # position, halts, recent decisions
+python live.py --kill      # sell everything and stop
 ```
 
 ## Next steps
 
 1. Run `compare` on BTC and ETH, daily and hourly.
 2. Shortlist anything that beats buy & hold out-of-sample on risk-adjusted terms.
-3. Paper trade the survivors on Binance testnet for 1 to 3 months. Results so far: `results/FINDINGS.md`; design: `docs/paper_trading_design.md`.
-4. Only then, live with small money, hard loss limits and a kill switch.
+3. Paper trade the survivor on Binance testnet for at least 2 months (built; see above).
+4. Only if the pre-registered go-live criteria hold: live with small money, hard loss limits and a kill switch.
 
 Not financial advice. Past performance, especially backtested, doesn't guarantee future results.

@@ -334,8 +334,9 @@ def test_fill_from_ccxt_fees():
 
 def test_settings_hide_secrets(tmp_path):
     env = tmp_path / ".env"
-    env.write_text("# comment\nBINANCE_TESTNET_API_KEY='abc123'\nALLOCATED_USDT=500\n")
+    env.write_text("# comment\nBINANCE_TESTNET_API_KEY='abc123'\nALLOCATED_USDT=500\nHARD_DAILY_LOSS=-0.001\n")
     assert read_dotenv(env)["BINANCE_TESTNET_API_KEY"] == "abc123"
     s = Settings.load(env={}, dotenv=env)
     assert s.api_key == "abc123" and s.allocated_usdt == 500
+    assert Limits(**s.limit_overrides).hard_daily_loss == -0.001
     assert "abc123" not in repr(s)
