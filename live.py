@@ -45,7 +45,10 @@ def check(settings: Settings) -> None:
     candles = t.market.daily_candles(t.symbol, now)
     target = t.strategy.target_positions(candles).iloc[-1]
     log(f"Last completed candle {candles.index[-1]:%Y-%m-%d}; {t.strategy.label()} target today: {target:.0%}")
-    t.alerts.send("cryptobot check: Telegram works.")
+    if settings.telegram_token and settings.telegram_chat_id:
+        t.alerts.send("cryptobot check: Telegram works.")
+    else:
+        log("Telegram not configured: alerts will only appear in the log.")
     t.alerts.heartbeat()
     log("Check passed. No orders were placed.")
 

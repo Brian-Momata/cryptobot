@@ -41,7 +41,7 @@ If no ping arrives for 90 minutes, healthchecks.io alerts you.
 ## 4. Rent a small server
 
 Any provider works. The smallest Linux server is plenty (1 CPU, 1–2 GB RAM, about $4–6/month),
-e.g. Hetzner CX22, DigitalOcean's basic droplet, or Vultr.
+e.g. Hetzner CX23, DigitalOcean's basic droplet, or Vultr.
 
 - Image: **Ubuntu 24.04**.
 - Region: **Europe** (e.g. Germany or Finland). Avoid US regions: Binance blocks US IP addresses.
@@ -97,6 +97,34 @@ journalctl -u cryptobot -n 50              # the bot's log
 
 The first tick after `--init` trades right away if the strategy wants a position. After that,
 it trades only just after 00:00 UTC.
+
+## Running on your PC instead (WSL)
+
+Fine for a start; move to a server later. Steps 1 to 3 are the same. Then, in the WSL terminal:
+
+```bash
+cd ~/projects/cryptobot
+cp .env.example .env && chmod 600 .env      # then fill in .env
+.venv/bin/python live.py --check
+.venv/bin/python live.py --init
+```
+
+WSL shuts down when no terminal is open, so a timer *inside* WSL would miss runs. Instead,
+Windows Task Scheduler starts WSL each hour. In **PowerShell** (no admin needed):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File \\wsl$\Ubuntu\home\momata\projects\cryptobot\deploy\register_windows_task.ps1
+```
+
+It registers a hidden task, "cryptobot paper tick", runs it once and prints the result
+(0 = OK). The log is `data/live.log`. Other things to know:
+
+- **Sleep:** a run missed while the PC sleeps happens as soon as it wakes, so a trade can be
+  a few hours late. To avoid that, set Windows **Settings > System > Power > Sleep** to Never
+  while it's plugged in.
+- **Remove the task:** `Unregister-ScheduledTask -TaskName "cryptobot paper tick" -Confirm:$false`
+- **Moving to a server later:** remove the task, copy `.env` and `data/live.sqlite` to the
+  server's `cryptobot/` folder, and skip `--init` there. The paper record continues.
 
 ## Day to day
 
@@ -178,4 +206,5 @@ Write the date of each drill in your notes.
 | `.env` | Keys and settings (secret, never committed) |
 | `data/live.sqlite` | Every decision, order and hourly equity sample |
 | `data/KILL` | If present, the bot sells and stays stopped |
-| `journalctl -u cryptobot` | The log |
+| `journalctl -u cryptobot` | The log (on a server) |
+| `data/live.log` | The log (on your PC) |

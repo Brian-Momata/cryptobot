@@ -7,3 +7,6 @@ results/*
 !results/FINDINGS.md
 !data/.gitkeep
 .env
+data/live.sqlite*
+data/live.log
+data/KILL
