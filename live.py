@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+import ccxt
 import pandas as pd
 
 from bot.live.alerts import Alerts
@@ -100,10 +101,17 @@ def main(argv=None) -> int:
             t.resume()
         else:
             t.tick()
+            t.outage_over()
     except Exception as e:
         # Report and fail loudly; the next hourly run retries. Keep the message short (no secrets
         # are in it, but exchange errors can be long).
-        t.alerts.send(f"ERROR in live.py: {type(e).__name__}: {str(e)[:300]}")
+        msg = f"{type(e).__name__}: {str(e)[:300]}"
+        if args.once and isinstance(e, ccxt.NetworkError):
+            # Exchange still unreachable after the in-run retries: only alert if it keeps happening.
+            if not t.outage(msg):
+                raise
+            msg = f"exchange unreachable for {t.state.get('outage_runs')} hourly runs in a row. Last error: {msg}"
+        t.alerts.send(f"ERROR in live.py: {msg}")
         t.alerts.heartbeat(failed=True)
         raise
     return 0

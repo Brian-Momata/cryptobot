@@ -8,6 +8,7 @@ Two separate connections, on purpose:
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 import pandas as pd
@@ -16,6 +17,21 @@ from ..data import _rows_to_df
 
 TESTNET_HOST = "testnet.binance.vision"
 DAY_MS = 86_400_000
+RETRY_WAITS = (5, 30)  # seconds between attempts: 3 tries over ~35s, well inside the 15 min task limit
+
+
+def retry(call, waits=RETRY_WAITS, sleep=time.sleep):
+    """Run `call()`, retrying when the exchange is briefly unreachable (timeouts, 5xx, rate limits).
+    Only for READ calls: an order that errors may still have arrived, so orders are never retried
+    here (the pending-order check in the trader handles those)."""
+    import ccxt
+
+    for wait in waits:
+        try:
+            return call()
+        except ccxt.NetworkError:
+            sleep(wait)
+    return call()
 
 
 @dataclass
@@ -65,15 +81,15 @@ class TestnetBroker:
                            "options": {"defaultType": "spot"}})
         ex.set_sandbox_mode(True)
         assert_testnet(ex)
-        ex.load_markets()
+        retry(ex.load_markets)
         self.ex, self.ccxt = ex, ccxt
         self.base, self.quote = symbol.split("/")
 
     def balances(self) -> dict[str, float]:
-        return {k: float(v or 0) for k, v in self.ex.fetch_balance()["total"].items()}
+        return {k: float(v or 0) for k, v in retry(self.ex.fetch_balance)["total"].items()}
 
     def price(self, symbol: str) -> float:
-        return float(self.ex.fetch_ticker(symbol)["last"])
+        return float(retry(lambda: self.ex.fetch_ticker(symbol))["last"])
 
     def market_buy(self, symbol: str, cost: float, client_id: str) -> Fill:
         order = self.ex.create_market_buy_order_with_cost(symbol, cost, {"newClientOrderId": client_id})
@@ -85,7 +101,7 @@ class TestnetBroker:
 
     def _fill(self, order: dict) -> Fill:
         if order.get("filled") is None or order.get("fees") is None:  # thin response: ask again
-            order = self.ex.fetch_order(order["id"], order["symbol"])
+            order = retry(lambda: self.ex.fetch_order(order["id"], order["symbol"]))
         fill = fill_from_ccxt(order, self.base, self.quote)
         if fill is None:
             raise RuntimeError(f"Order {order.get('clientOrderId')} was not filled (status {order.get('status')})")
@@ -93,13 +109,13 @@ class TestnetBroker:
 
     def find_order(self, symbol: str, client_id: str) -> Fill | None:
         try:
-            order = self.ex.fetch_order("", symbol, {"origClientOrderId": client_id})
+            order = retry(lambda: self.ex.fetch_order("", symbol, {"origClientOrderId": client_id}))
         except self.ccxt.OrderNotFound:
             return None
         return fill_from_ccxt(order, self.base, self.quote)
 
     def cancel_all(self, symbol: str) -> int:
-        open_orders = self.ex.fetch_open_orders(symbol)
+        open_orders = retry(lambda: self.ex.fetch_open_orders(symbol))
         for o in open_orders:
             self.ex.cancel_order(o["id"], symbol)
         return len(open_orders)
@@ -134,7 +150,7 @@ class MainnetData:
         since = int((today - pd.Timedelta(days=days)).timestamp() * 1000)
         rows: list[list] = []
         while since < int(today.timestamp() * 1000):
-            batch = self.ex.fetch_ohlcv(symbol, "1d", since=since, limit=1000)
+            batch = retry(lambda: self.ex.fetch_ohlcv(symbol, "1d", since=since, limit=1000))
             if not batch:
                 break
             rows.extend(batch)
@@ -145,8 +161,9 @@ class MainnetData:
 
     def today_open(self, symbol: str, now: pd.Timestamp) -> float | None:
         """Open of today's (still forming) daily candle: the price the backtest would fill at."""
-        batch = self.ex.fetch_ohlcv(symbol, "1d", since=int(now.floor("D").timestamp() * 1000), limit=1)
+        since = int(now.floor("D").timestamp() * 1000)
+        batch = retry(lambda: self.ex.fetch_ohlcv(symbol, "1d", since=since, limit=1))
         return float(batch[0][1]) if batch else None
 
     def price(self, symbol: str) -> float:
-        return float(self.ex.fetch_ticker(symbol)["last"])
+        return float(retry(lambda: self.ex.fetch_ticker(symbol))["last"])

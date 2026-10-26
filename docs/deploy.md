@@ -147,7 +147,8 @@ cd cryptobot && .venv/bin/python live.py --status
 | `HALTED ... orders already tried` | Two order attempts failed in one day | Check `journalctl -u cryptobot`, then `--resume` |
 | `Testnet price ... away from the real market` | Testnet price is unrealistic right now | Nothing. It retries every hour |
 | `stale data` | Binance hasn't published yesterday's candle | Nothing, unless it lasts all day |
-| `ERROR in live.py` | Something crashed (often a network blip) | Nothing if it's once. The next hour retries. If it repeats, check the log |
+| `ERROR in live.py: exchange unreachable for 3 hourly runs` | Binance has been down or unreachable for 3+ hours (shorter blips are retried and only logged) | Check your internet and Binance's status page. You'll get "reachable again" when it recovers |
+| `ERROR in live.py` (anything else) | Something crashed | Check the log. If it repeats every hour, something needs fixing |
 | `Recovered order ... after a crash` | It crashed mid-order and confirmed the order did go through | Nothing. This is the safety net working |
 | healthchecks.io "DOWN" | The bot stopped running | `systemctl status cryptobot.timer`, `journalctl -u cryptobot` |
 

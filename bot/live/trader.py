@@ -18,6 +18,8 @@ from .risk import Limits, change, check_order, plan_order, position_fraction, pr
 
 DAY = pd.Timedelta(days=1)
 WARMUP_DAYS = 400  # enough history for the longest indicator (sma 200 in the blend)
+OUTAGE_ALERT_AFTER = 3  # hourly runs in a row that couldn't reach the exchange before alerting
+OUTAGE_REALERT_EVERY = 24  # then remind once a day while it lasts
 
 
 def utc_now() -> pd.Timestamp:
@@ -93,6 +95,31 @@ class Trader:
         self.state.set("halted", {"reason": reason, "at": self.clock().isoformat()})
         self.alerts.send(f"HALTED, position kept: {reason}\nNo new orders until you check and run "
                          "`python live.py --resume` (or `--kill` to sell everything).")
+
+    # ---------- exchange outages ----------
+
+    def outage(self, error: str) -> bool:
+        """Record an hourly run that failed because the exchange was unreachable. Brief outages
+        fix themselves by the next hour, so this returns True (send an alert) only once it has
+        lasted OUTAGE_ALERT_AFTER runs, then once a day."""
+        n = self.state.get("outage_runs", 0) + 1
+        self.state.set("outage_runs", n)
+        if n == 1:
+            self.state.set("outage_since", self.clock().isoformat())
+        alert = n >= OUTAGE_ALERT_AFTER and (n - OUTAGE_ALERT_AFTER) % OUTAGE_REALERT_EVERY == 0
+        if not alert:
+            self.log(f"Exchange unreachable ({n} run(s) in a row, alert at {OUTAGE_ALERT_AFTER}): {error}")
+        return alert
+
+    def outage_over(self) -> None:
+        n = self.state.get("outage_runs", 0)
+        if not n:
+            return
+        if n >= OUTAGE_ALERT_AFTER:
+            self.alerts.send(f"Exchange reachable again after {n} failed hourly runs "
+                             f"(since {self.state.get('outage_since')}).")
+        self.state.delete("outage_runs")
+        self.state.delete("outage_since")
 
     # ---------- the hourly tick ----------
 

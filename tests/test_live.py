@@ -4,12 +4,12 @@ import pytest
 
 from bot.data import synthetic_data
 from bot.engine import CostModel, run_backtest
-from bot.live.broker import Fill, assert_testnet, fill_from_ccxt
+from bot.live.broker import Fill, assert_testnet, fill_from_ccxt, retry
 from bot.live.config import Settings, read_dotenv
 from bot.live.fake import FakeBroker, FakeMarket, RecordingAlerts
 from bot.live.risk import Limits, OrderPlan, check_order, plan_order
 from bot.live.state import State
-from bot.live.trader import Trader
+from bot.live.trader import OUTAGE_ALERT_AFTER, OUTAGE_REALERT_EVERY, Trader
 from bot.strategies import VolTargetBlend, VolTargetTrend
 
 NO_LIMITS = Limits(soft_daily_loss=-1, hard_daily_loss=-1, max_drawdown=-1)
@@ -340,3 +340,60 @@ def test_settings_hide_secrets(tmp_path):
     assert s.api_key == "abc123" and s.allocated_usdt == 500
     assert Limits(**s.limit_overrides).hard_daily_loss == -0.001
     assert "abc123" not in repr(s)
+
+
+# ---------- exchange outages ----------
+
+def flaky(failures, error):
+    calls = []
+
+    def call():
+        calls.append(1)
+        if len(calls) <= failures:
+            raise error
+        return "ok"
+    return call, calls
+
+
+def test_retry_recovers_from_brief_outage():
+    import ccxt
+    call, calls = flaky(2, ccxt.ExchangeNotAvailable("500"))
+    waits = []
+    assert retry(call, sleep=waits.append) == "ok"
+    assert len(calls) == 3 and len(waits) == 2
+
+
+def test_retry_gives_up_after_last_attempt():
+    import ccxt
+    call, calls = flaky(99, ccxt.RequestTimeout("slow"))
+    with pytest.raises(ccxt.RequestTimeout):
+        retry(call, sleep=lambda _: None)
+    assert len(calls) == 3
+
+
+def test_retry_does_not_retry_other_errors():
+    import ccxt
+    call, calls = flaky(1, ccxt.InsufficientFunds("no"))
+    with pytest.raises(ccxt.InsufficientFunds):
+        retry(call, sleep=lambda _: None)
+    assert len(calls) == 1
+
+
+def test_outage_alerts_only_when_it_lasts(tmp_path, candles):
+    t = make_trader(tmp_path, candles, "2019-06-01")
+    t.alerts.messages.clear()
+    alerts = [t.outage("ExchangeNotAvailable") for _ in range(OUTAGE_ALERT_AFTER + OUTAGE_REALERT_EVERY)]
+    assert [i + 1 for i, a in enumerate(alerts) if a] == [OUTAGE_ALERT_AFTER, OUTAGE_ALERT_AFTER + OUTAGE_REALERT_EVERY]
+    t.outage_over()
+    assert len(t.alerts.messages) == 1 and "reachable again" in t.alerts.messages[0]
+    assert t.state.get("outage_runs") is None
+
+
+def test_brief_outage_recovers_silently(tmp_path, candles):
+    t = make_trader(tmp_path, candles, "2019-06-01")
+    t.alerts.messages.clear()
+    for _ in range(OUTAGE_ALERT_AFTER - 1):
+        assert not t.outage("ExchangeNotAvailable")
+    t.outage_over()
+    assert t.alerts.messages == [] and t.state.get("outage_runs") is None
+    assert not t.outage("ExchangeNotAvailable")  # the count starts over
