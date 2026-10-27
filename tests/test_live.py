@@ -105,7 +105,8 @@ def test_shadow_ledgers_reported(tmp_path, candles):
     t = make_trader(tmp_path, candles, start)
     run_days(t, df.index[(df.index >= start) & (df.index < start + pd.Timedelta(days=60))], hours=(0,))
     report = t.alerts.messages[-1]
-    for name in ("backtest of vol_target", "shadow A (blend)", "shadow B (50/50 BTC+ETH)", "buy & hold BTC"):
+    for name in ("Simulation of this bot", "Idea A, blended trend", "Idea B, half-half BTC+ETH",
+                 "Just buying and holding BTC"):
         assert name in report
 
     # The live ledger, valued at yesterday's close before today's trade, equals the backtest ledger.
@@ -212,7 +213,7 @@ def test_soft_daily_loss_alerts_once(tmp_path, candles):
     for h in (3, 4, 5):
         t.clock.t = t.clock.t.floor("D") + pd.Timedelta(hours=h)
         t.tick()
-    assert sum("Warning: down" in m for m in t.alerts.messages) == 1
+    assert sum("Heads-up" in m for m in t.alerts.messages) == 1
     assert t.state.get("halted") is None
 
 

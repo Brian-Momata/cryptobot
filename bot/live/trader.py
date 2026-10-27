@@ -54,8 +54,9 @@ class Trader:
         self.state.set("peak_equity", self.s.allocated_usdt)
         for key in ("halted", "last_trade_date", "day_start", "soft_alert_date", "notice_date"):
             self.state.delete(key)
-        self.alerts.send(f"Paper trading initialised: {self.s.allocated_usdt:.2f} {self.quote} allocated to "
-                         f"{self.strategy.label()} on {self.symbol} (testnet).")
+        self.alerts.send(f"🚀 Paper trading started\n{self.s.allocated_usdt:,.2f} {self.quote} of test money on "
+                         f"{self.symbol}, strategy {self.strategy.label()}.\nThis is the Binance testnet: no real "
+                         "money is involved. You'll get one update a day.")
 
     def resume(self) -> None:
         if self.s.kill_path.exists():
@@ -67,7 +68,8 @@ class Trader:
         price = self.market.price(self.symbol)
         units, cash = self.account()
         self.state.set("peak_equity", cash + units * price)
-        self.alerts.send(f"Resumed by hand (was halted: {halted['reason'] if halted else 'not halted'}).")
+        why = f"\nIt had been paused because {halted['reason']}" if halted else ""
+        self.alerts.send(f"▶️ Bot restarted by hand. It will trade normally again.{why}")
 
     def kill(self, reason: str) -> None:
         """Cancel open orders, sell the bot's coin to USDT, and stay stopped."""
@@ -84,17 +86,18 @@ class Trader:
                 self.state.add_order(cid, now.date().isoformat(), "sell", qty, now.isoformat())
                 fill = self.broker.market_sell(self.symbol, qty, cid)
                 self.apply_fill(cid, fill, None)
-                sold = f" Sold {qty:g} {self.base} at ~{fill.avg_price:,.2f}."
+                sold = f"\nSold {qty:g} {self.base} at about {fill.avg_price:,.2f}, so it now holds only {self.quote}."
         self.state.set("halted", {"reason": "killed", "detail": reason, "at": now.isoformat()})
-        self.alerts.send(f"KILLED ({reason}).{sold} Bot stays stopped until the kill file is removed "
-                         "and `python live.py --resume` is run.")
+        self.alerts.send(f"🛑 Bot stopped: {reason}.{sold}\nIt stays stopped. To restart: delete "
+                         f"data/{self.s.kill_path.name}, then run `python live.py --resume`.")
 
     def halt(self, reason: str) -> None:
         """Stop trading but KEEP the position (halt-and-hold). Needs a manual --resume."""
         self.broker.cancel_all(self.symbol)
         self.state.set("halted", {"reason": reason, "at": self.clock().isoformat()})
-        self.alerts.send(f"HALTED, position kept: {reason}\nNo new orders until you check and run "
-                         "`python live.py --resume` (or `--kill` to sell everything).")
+        self.alerts.send(f"🛑 Bot paused: {reason}\nYour {self.base} is kept as it is, and no trades happen "
+                         "until you look into it.\n• To restart: `python live.py --resume`\n"
+                         "• To sell everything and stop: `python live.py --kill`")
 
     # ---------- exchange outages ----------
 
@@ -116,8 +119,9 @@ class Trader:
         if not n:
             return
         if n >= OUTAGE_ALERT_AFTER:
-            self.alerts.send(f"Exchange reachable again after {n} failed hourly runs "
-                             f"(since {self.state.get('outage_since')}).")
+            since = pd.Timestamp(self.state.get("outage_since"))
+            self.alerts.send(f"✅ Binance is reachable again, after {n} hours without a connection "
+                             f"(since {since:%a %d %b %H:%M} UTC). Nothing to do.")
         self.state.delete("outage_runs")
         self.state.delete("outage_since")
 
@@ -166,9 +170,10 @@ class Trader:
         lim, ledger = self.limits, self.state.get("ledger")
         gap = reconcile_gap(units, ledger["units"], cash, ledger["cash"], price, equity)
         if gap > lim.max_reconcile_gap:
-            self.halt(f"exchange balances differ from the bot's records by {gap:.1%} of equity "
-                      f"(exchange {units:g} {self.base} / {cash:.2f} {self.quote}, records {ledger['units']:g} / "
-                      f"{ledger['cash']:.2f}). Testnet reset? Then `--init --force`.")
+            self.halt(f"the testnet balances differ from the bot's own records by {gap:.1%} of the account "
+                      f"(testnet: {units:g} {self.base} + {cash:.2f} {self.quote}; records: {ledger['units']:g} "
+                      f"{self.base} + {ledger['cash']:.2f} {self.quote}). The testnet is sometimes reset; if so, "
+                      "start over with `python live.py --init --force`.")
             return False
 
         today = now.date().isoformat()
@@ -178,19 +183,19 @@ class Trader:
             self.state.set("day_start", day_start)
         day = change(equity, day_start["equity"])
         if day <= lim.hard_daily_loss:
-            self.halt(f"down {day:.1%} today (limit {lim.hard_daily_loss:.0%}).")
+            self.halt(f"the account is down {-day:.1%} today, past the {-lim.hard_daily_loss:.0%} daily limit.")
             return False
         if day <= lim.soft_daily_loss and self.state.get("soft_alert_date") != today:
             self.state.set("soft_alert_date", today)
-            self.alerts.send(f"Warning: down {day:.1%} today (alert at {lim.soft_daily_loss:.0%}, "
-                             f"halt at {lim.hard_daily_loss:.0%}). No action taken.")
+            self.alerts.send(f"⚠️ Heads-up: the account is down {-day:.1%} today. Nothing to do. The bot "
+                             f"pauses itself if the drop reaches {-lim.hard_daily_loss:.0%}.")
 
         peak = max(self.state.get("peak_equity", equity), equity)
         self.state.set("peak_equity", peak)
         dd = change(equity, peak)
         if dd <= lim.max_drawdown:
-            self.halt(f"drawdown {dd:.1%} from peak {peak:.2f} (limit {lim.max_drawdown:.0%}): "
-                      "outside the strategy's tested behaviour.")
+            self.halt(f"the account is {-dd:.1%} below its best value of {peak:,.2f} {self.quote} (a drawdown "
+                      f"past the {-lim.max_drawdown:.0%} limit). That's worse than the strategy did in testing.")
             return False
         return True
 
@@ -203,13 +208,15 @@ class Trader:
             fill = self.broker.find_order(self.symbol, o["client_id"])
             if fill is None:
                 self.state.mark_order(o["client_id"], "not_placed")
-                self.alerts.send(f"Order {o['client_id']} never reached the exchange; it will be retried.")
+                self.alerts.send(f"ℹ️ An order sent just before a crash never reached Binance. The bot will "
+                                 f"try it again. Nothing to do. (order {o['client_id']})")
                 continue
             self.apply_fill(o["client_id"], fill, None)
             if not o["client_id"].startswith("vt-kill"):
                 self.state.set("last_trade_date", o["trade_date"])
-            self.alerts.send(f"Recovered order {o['client_id']} after a crash: it did fill "
-                             f"({fill.base_delta:+g} {self.base} at {fill.avg_price:,.2f}).")
+            self.alerts.send(f"ℹ️ Recovered after a crash: an order did go through ({fill.base_delta:+g} "
+                             f"{self.base} at {fill.avg_price:,.2f}) and is now recorded. Nothing to do. "
+                             f"(order {o['client_id']})")
 
     def apply_fill(self, client_id: str, fill, mainnet_open: float | None) -> None:
         self.state.fill_order(client_id, fill.base_delta, fill.quote_delta, fill.avg_price, fill.fee_quote,
@@ -240,7 +247,8 @@ class Trader:
         candle_time = candles.index[-1]
         age_h = (now - (candle_time + DAY)) / pd.Timedelta(hours=1)
         if age_h > self.limits.max_candle_age_hours:
-            self.notice_once(f"Latest daily candle closed {age_h:.0f}h ago (stale data); not trading.", today)
+            self.notice_once(f"ℹ️ No trade yet: Binance's daily price data is late (the latest day closed "
+                             f"{age_h:.0f}h ago, stale data). The bot checks again every hour.", today)
             return
         trade_date = (candle_time + DAY).date().isoformat()
         if trade_date == self.state.get("last_trade_date"):
@@ -258,8 +266,9 @@ class Trader:
         gap = price_gap(testnet_price, price)
         if gap > self.limits.max_price_gap:
             self.state.add_decision(**decision, action="skip", reason=f"testnet price {gap:.1%} from mainnet")
-            self.notice_once(f"Testnet price {testnet_price:,.2f} is {gap:.1%} away from the real market "
-                             f"{price:,.2f}; not trading this hour.", today)
+            self.notice_once(f"ℹ️ No trade this hour: the testnet price ({testnet_price:,.2f}) is {gap:.1%} "
+                             f"away from the real market ({price:,.2f}), so its fills would be unrealistic. "
+                             "The bot checks again every hour.", today)
             return
 
         plan = plan_order(target, units, cash, price, self.costs)
@@ -292,31 +301,64 @@ class Trader:
         mainnet_open = self.market.today_open(self.symbol, now)
         self.apply_fill(cid, fill, mainnet_open)
         slip = (fill.avg_price / mainnet_open - 1) if mainnet_open else float("nan")
+        verb = "Bought" if plan.side == "buy" else "Sold"
+        detail = (f"{verb} {abs(fill.base_delta):.6f} {self.base} at {fill.avg_price:,.2f}, fee "
+                  f"{fill.fee_quote:.2f} {self.quote}. Price was {slip:+.2%} vs the real market's open.")
         self.finish_day(decision, plan.side, f"{cid}: {fill.base_delta:+.6f} {self.base} at {fill.avg_price:,.2f} "
-                        f"(fee {fill.fee_quote:.2f} {self.quote}, {slip:+.2%} vs mainnet open)", now)
+                        f"(fee {fill.fee_quote:.2f} {self.quote}, {slip:+.2%} vs mainnet open)", now, detail)
 
-    def finish_day(self, decision: dict, action: str, reason: str, now: pd.Timestamp) -> None:
+    def finish_day(self, decision: dict, action: str, reason: str, now: pd.Timestamp, detail: str = "") -> None:
         self.state.add_decision(**decision, action=action, reason=reason)
         self.state.set("last_trade_date", decision["trade_date"])
-        self.alerts.send(self.daily_report(decision, action, reason, now))
+        self.alerts.send(self.daily_report(decision, action, reason, now, detail))
 
-    def daily_report(self, d: dict, action: str, reason: str, now: pd.Timestamp) -> str:
+    def daily_report(self, d: dict, action: str, reason: str, now: pd.Timestamp, detail: str = "") -> str:
         price = self.market.price(self.symbol)
         units, cash = self.account()
         equity = cash + units * price
         alloc = self.s.allocated_usdt
+        started = pd.Timestamp(self.state.get("started"))
+        want, have = f"{d['target']:.0%} in {self.base}", f"{d['current']:.0%}"
+        if action == "hold":
+            headline = "✋ HOLD: no trade today"
+            if "below exchange minimum" in reason:
+                why = f"The strategy wants {want} (now {have}), but the trade would be below Binance's minimum order size."
+            elif round(d["target"], 2) == round(d["current"], 2):
+                why = f"The strategy wants {want}, and that's already where the money is."
+            else:
+                why = f"The strategy wants {want} (now {have}). The difference is too small to be worth the fees."
+        else:
+            headline = f"{'🟢 BUY' if action == 'buy' else '🔴 SELL'}: from {have} to {want}"
+            why = detail or reason
         lines = [
-            f"Daily {d['trade_date']}: {action.upper()}",
-            f"Target {d['target']:.0%} in {self.base} (was {d['current']:.0%}). {reason}",
-            f"Equity {equity:,.2f} {self.quote} ({change(equity, alloc):+.1%} since start), "
-            f"now {position_fraction(units, cash, price):.0%} in {self.base}",
+            f"📊 Daily update · {pd.Timestamp(d['trade_date']):%a %d %b}",
+            headline,
+            why,
+            "",
+            f"💰 Paper account: {equity:,.2f} {self.quote} ({change(equity, alloc):+.1%} since {started:%d %b})",
+            f"Holds {units:.5f} {self.base} ({position_fraction(units, cash, price):.0%}) + {cash:,.2f} {self.quote}",
+            "",
+            f"📈 Compared, since {started:%d %b}:",
+            f"• This bot: {change(equity, alloc):+.1%}",
         ]
         try:
             for name, value in self.shadows(now).items():
-                lines.append(f"  {name}: {value:,.2f} ({change(value, alloc):+.1%})")
+                lines.append(f"• {self.plain_name(name)}: {change(value, alloc):+.1%}")
         except Exception as e:  # noqa: BLE001 - the report must never block trading
-            lines.append(f"  (shadow ledgers unavailable: {type(e).__name__})")
+            lines.append(f"• (comparisons unavailable today: {type(e).__name__})")
         return "\n".join(lines)
+
+    def plain_name(self, ledger: str) -> str:
+        """Readable names for the ledgers in shadows(), for the daily report."""
+        if ledger.startswith("backtest"):
+            return "Simulation of this bot (should match it)"
+        if ledger.startswith("shadow A"):
+            return "Idea A, blended trend"
+        if ledger.startswith("shadow B"):
+            return "Idea B, " + ledger[ledger.index("(") + 1:-1].replace("50/50 ", "half-half ")
+        if ledger.startswith("buy & hold"):
+            return f"Just buying and holding {self.base}"
+        return ledger
 
     # ---------- shadow ledgers (simulated, no orders) ----------
 

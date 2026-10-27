@@ -47,7 +47,7 @@ def check(settings: Settings) -> None:
     target = t.strategy.target_positions(candles).iloc[-1]
     log(f"Last completed candle {candles.index[-1]:%Y-%m-%d}; {t.strategy.label()} target today: {target:.0%}")
     if settings.telegram_token and settings.telegram_chat_id:
-        t.alerts.send("cryptobot check: Telegram works.")
+        t.alerts.send("✅ cryptobot check: Telegram works.")
     else:
         log("Telegram not configured: alerts will only appear in the log.")
     t.alerts.heartbeat()
@@ -105,13 +105,23 @@ def main(argv=None) -> int:
     except Exception as e:
         # Report and fail loudly; the next hourly run retries. Keep the message short (no secrets
         # are in it, but exchange errors can be long).
-        msg = f"{type(e).__name__}: {str(e)[:300]}"
+        first_line = (str(e).splitlines() or [""])[0].split(" <html")[0]  # exchange errors append HTML pages
+        msg = f"{type(e).__name__}: {first_line[:300]}"
         if args.once and isinstance(e, ccxt.NetworkError):
             # Exchange still unreachable after the in-run retries: only alert if it keeps happening.
             if not t.outage(msg):
                 raise
-            msg = f"exchange unreachable for {t.state.get('outage_runs')} hourly runs in a row. Last error: {msg}"
-        t.alerts.send(f"ERROR in live.py: {msg}")
+            t.alerts.send(f"⚠️ Can't reach Binance: {t.state.get('outage_runs')} hourly runs in a row have failed.\n"
+                          "Your position is untouched and the bot keeps retrying every hour. You'll get a "
+                          f"message when it's back. If this lasts more than a day, check data/live.log.\n\n"
+                          f"Technical detail: {msg}")
+        elif args.once:
+            t.alerts.send("❌ The bot crashed this hour, so nothing was traded. It tries again next hour.\n"
+                          "If this message repeats, check data/live.log (or ask Claude to look).\n\n"
+                          f"Technical detail: {msg}")
+        else:
+            command = next(f"--{f}" for f in ("init", "status", "kill", "resume") if getattr(args, f))
+            t.alerts.send(f"❌ `python live.py {command}` failed.\n\nTechnical detail: {msg}")
         t.alerts.heartbeat(failed=True)
         raise
     return 0
