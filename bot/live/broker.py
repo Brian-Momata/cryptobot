@@ -77,13 +77,22 @@ class TestnetBroker:
 
         if not api_key or not api_secret:
             raise RuntimeError("Testnet API key/secret missing: set them in .env (see docs/deploy.md)")
+        # Spot markets only: by default ccxt also loads futures, so a futures-testnet outage
+        # would stop a bot that never trades futures.
         ex = ccxt.binance({"apiKey": api_key, "secret": api_secret, "enableRateLimit": True,
-                           "options": {"defaultType": "spot"}})
+                           "options": {"defaultType": "spot", "fetchMarkets": {"types": ["spot"]}}})
         ex.set_sandbox_mode(True)
         assert_testnet(ex)
-        retry(ex.load_markets)
-        self.ex, self.ccxt = ex, ccxt
+        self._ex, self.ccxt = ex, ccxt
         self.base, self.quote = symbol.split("/")
+
+    @property
+    def ex(self):
+        """The exchange, with markets loaded on first use rather than in __init__, so a network
+        error while connecting happens inside the tick and counts as an outage like any other."""
+        if not self._ex.markets:
+            retry(self._ex.load_markets)
+        return self._ex
 
     def balances(self) -> dict[str, float]:
         return {k: float(v or 0) for k, v in retry(self.ex.fetch_balance)["total"].items()}

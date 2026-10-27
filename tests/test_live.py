@@ -4,7 +4,7 @@ import pytest
 
 from bot.data import synthetic_data
 from bot.engine import CostModel, run_backtest
-from bot.live.broker import Fill, assert_testnet, fill_from_ccxt, retry
+from bot.live.broker import Fill, TestnetBroker, assert_testnet, fill_from_ccxt, retry
 from bot.live.config import Settings, read_dotenv
 from bot.live.fake import FakeBroker, FakeMarket, RecordingAlerts
 from bot.live.risk import Limits, OrderPlan, check_order, plan_order
@@ -377,6 +377,27 @@ def test_retry_does_not_retry_other_errors():
     with pytest.raises(ccxt.InsufficientFunds):
         retry(call, sleep=lambda _: None)
     assert len(calls) == 1
+
+
+def test_testnet_broker_connects_lazily_and_spot_only(monkeypatch):
+    """Creating the broker must not touch the network (so a failed connection is handled as an
+    outage inside the tick), and it must load spot markets only (a futures-testnet outage once
+    stopped the bot)."""
+    import ccxt
+
+    calls = []
+
+    def fake_fetch_markets(self, params={}):
+        calls.append(self.options["fetchMarkets"]["types"])
+        raise ccxt.ExchangeNotAvailable("502 Bad Gateway")
+
+    monkeypatch.setattr(ccxt.binance, "fetch_markets", fake_fetch_markets)
+    monkeypatch.setattr("bot.live.broker.retry", lambda call: call())  # skip the real waits
+    broker = TestnetBroker("key", "secret", "BTC/USDT")
+    assert calls == []
+    with pytest.raises(ccxt.NetworkError):
+        broker.min_notional("BTC/USDT")
+    assert calls and all(types == ["spot"] for types in calls)
 
 
 def test_outage_alerts_only_when_it_lasts(tmp_path, candles):
